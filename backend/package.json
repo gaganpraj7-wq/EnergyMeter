@@ -1,0 +1,27 @@
+{
+  "name": "energy-monitor-backend",
+  "version": "1.0.0",
+  "description": "IoT Energy Monitoring Backend",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "@serialport/parser-readline": "^13.0.0",
+    "axios": "^1.13.6",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.0",
+    "express": "^4.18.2",
+    "firebase-admin": "^10.1.0",
+    "json2csv": "^5.0.7",
+    "jsonwebtoken": "^9.0.0",
+    "mysql2": "^3.20.0",
+    "nodemailer": "^8.0.6",
+    "serialport": "^13.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  }
+}
