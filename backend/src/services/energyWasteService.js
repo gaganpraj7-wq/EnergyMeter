@@ -2,6 +2,7 @@
 // Detects phantom loads and unnecessary device usage
 
 const db = require("../config/firebase");
+const { getSessionCache } = require("./cacheService");
 
 const THRESHOLDS = {
   MIN_CONTINUOUS_HOURS: 0.5,  // 30 minutes
@@ -125,10 +126,10 @@ function analyzeWaste(sessions, tariffPerUnit = 6.50) {
  * Get waste analysis for a socket
  */
 async function getWasteAnalysis(socketId, userId, tariffPerUnit = 6.50, daysBack = 30) {
-  try {
-    const since = new Date();
-    since.setDate(since.getDate() - daysBack);
+  const since = new Date();
+  since.setDate(since.getDate() - daysBack);
 
+  try {
     const snapshot = await db
       .collection("sessions")
       .where("socketId", "==", Number(socketId))
@@ -145,14 +146,9 @@ async function getWasteAnalysis(socketId, userId, tariffPerUnit = 6.50, daysBack
 
     return analysis;
   } catch (err) {
-    console.error("Error analyzing waste:", err);
-    return {
-      phantomLoad: 0,
-      wasteCostPerMonth: 0,
-      unnecessaryRuntime: 0,
-      recommendations: [],
-      overallWasteScore: 0
-    };
+    console.warn("Firestore waste fetch failed, using cached session data:", err.message);
+    const cachedSessions = getSessionCache(socketId).filter(session => new Date(session.startTime) >= since);
+    return analyzeWaste(cachedSessions, tariffPerUnit);
   }
 }
 

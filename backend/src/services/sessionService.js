@@ -2,6 +2,8 @@
 // Tracks when devices turn ON/OFF and creates usage sessions
 
 const db = require("../config/firebase");
+const { pushSession, getSessionCache } = require("../services/cacheService");
+const { classifyDevice } = require("../services/deviceFingerprintService");
 
 // Store current session state per socket
 const sessionState = {
@@ -71,29 +73,38 @@ async function trackSession(socketId, power, voltage, current, energy) {
     if (durationMs > THRESHOLDS.MIN_SESSION_TIME) {
       const durationMinutes = (durationMs / 1000 / 60).toFixed(2);
       const avgPower = (state.peakPower * 0.8).toFixed(2); // Approximate average
-      const deviceType = detectDeviceType(avgPower);
+      const fingerprint = classifyDevice({ voltage, current, power, energy });
+      const deviceType = fingerprint.deviceName !== 'Unknown' && fingerprint.confidence >= 0.45
+        ? fingerprint.deviceName
+        : detectDeviceType(avgPower);
 
-      console.log(`⏹️ [SOCKET ${socketId}] DEVICE TURNED OFF - Duration: ${durationMinutes}min, Avg Power: ${avgPower}W`);
+      console.log(`⏹️ [SOCKET ${socketId}] DEVICE TURNED OFF - Duration: ${durationMinutes}min, Avg Power: ${avgPower}W, Type: ${deviceType}`);
+      if (fingerprint.deviceName !== deviceType) {
+        console.log(`   🔎 Fingerprint fallback used: ${fingerprint.deviceName} (${fingerprint.confidence.toFixed(2)})`);
+      }
 
       // 💾 SAVE SESSION TO FIREBASE
-      try {
-        await db.collection("sessions").add({
-          socketId: Number(socketId),
-          deviceType,
-          startTime: state.startTime,
-          endTime: currentTime,
-          durationMs,
-          durationMinutes: Number(durationMinutes),
-          peakPower: state.peakPower,
-          avgPower: Number(avgPower),
-          energyConsumed: (state.peakPower * durationMinutes / 60).toFixed(3), // kWh
-          timestamp: new Date(),
-        });
+      const session = {
+        socketId: Number(socketId),
+        deviceType,
+        startTime: state.startTime,
+        endTime: currentTime,
+        durationMs,
+        durationMinutes: Number(durationMinutes),
+        peakPower: state.peakPower,
+        avgPower: Number(avgPower),
+        energyConsumed: (state.peakPower * durationMinutes / 60).toFixed(3), // kWh
+        timestamp: new Date(),
+      };
 
+      try {
+        await db.collection("sessions").add(session);
         console.log(`✅ [SOCKET ${socketId}] Session saved to Firebase`);
       } catch (err) {
-        console.error(`❌ Error saving session: ${err.message}`);
+        console.warn(`⚠️ Firebase session save failed, caching session locally: ${err.message}`);
       }
+
+      pushSession(socketId, session);
     }
 
     // Reset session state
@@ -128,8 +139,9 @@ async function getSessionHistory(socketId, userId, daysBack = 7) {
 
     return sessions;
   } catch (err) {
-    console.error("Error fetching sessions:", err);
-    return [];
+    console.warn("Firestore session fetch failed, using cached sessions:", err.message);
+    const cached = getSessionCache(socketId);
+    return cached.filter(s => new Date(s.startTime) >= since).sort((a,b)=>new Date(b.startTime)-new Date(a.startTime));
   }
 }
 

@@ -1,7 +1,14 @@
 // ========== ANOMALY DETECTION SERVICE ==========
 // Detects unusual power spikes and learns device behavior patterns
+// Now with ML-based Isolation Forest detection via Python backend
 
 const db = require("../config/firebase");
+const axios = require("axios");
+const { pushAnomaly, getAnomalyCache } = require("./cacheService");
+
+// Python ML Service URL
+const ML_SERVICE_URL = "http://localhost:5001";
+const ML_ENABLED = true;
 
 // Store learning data in memory per socket
 const learningData = {
@@ -84,27 +91,101 @@ function detectAnomaly(socketId, power, voltage, current) {
 }
 
 /**
- * Save anomaly to Firebase for historical tracking
+ * 🤖 Detect anomalies using ML (Isolation Forest via Python)
+ * Falls back to statistical method if ML service is unavailable
  */
+async function detectAnomalyWithML(socketId, power, voltage, current, history = []) {
+  try {
+    // Only use ML if enabled and history is provided
+    if (!ML_ENABLED || !history || history.length === 0) {
+      console.log(`⚠️  ML detection skipped (no history or disabled)`);
+      return detectAnomaly(socketId, power, voltage, current);
+    }
+
+    // Check if ML service is available
+    try {
+      await axios.get(`${ML_SERVICE_URL}/health`);
+    } catch (healthErr) {
+      console.log(`⚠️  ML service unavailable, falling back to statistical method`);
+      return detectAnomaly(socketId, power, voltage, current);
+    }
+
+    // Call Python ML service
+    const response = await axios.post(`${ML_SERVICE_URL}/detect-anomaly`, {
+      socketId: Number(socketId),
+      current_reading: {
+        voltage: Number(voltage),
+        current: Number(current),
+        power: Number(power)
+      },
+      history: history.map(h => ({
+        voltage: Number(h.voltage),
+        current: Number(h.current),
+        power: Number(h.power)
+      }))
+    }, { timeout: 5000 });
+
+    const mlResult = response.data;
+
+    // Convert ML result to our format
+    let severity = 0;
+    let reason = null;
+
+    if (mlResult.is_anomaly) {
+      if (mlResult.severity === 'HIGH') {
+        severity = 3;
+        reason = `🤖 ML Alert (HIGH): ${mlResult.message}`;
+      } else if (mlResult.severity === 'MEDIUM') {
+        severity = 2;
+        reason = `🤖 ML Alert (MEDIUM): ${mlResult.message}`;
+      } else if (mlResult.severity === 'LOW') {
+        severity = 1;
+        reason = `🤖 ML Alert (LOW): ${mlResult.message}`;
+      }
+    } else {
+      severity = 0;
+      reason = mlResult.message;
+    }
+
+    console.log(`🤖 ML Detection Result [Socket ${socketId}]: ${mlResult.message} (Confidence: ${(mlResult.confidence * 100).toFixed(1)}%)`);
+
+    return {
+      isAnomaly: mlResult.is_anomaly,
+      severity,
+      reason,
+      mlConfidence: mlResult.confidence,
+      mlScore: mlResult.anomaly_score,
+      method: 'ML_ISOLATION_FOREST',
+      timestamp: new Date()
+    };
+
+  } catch (err) {
+    console.error(`❌ ML detection error, falling back to statistical method: ${err.message}`);
+    return detectAnomaly(socketId, power, voltage, current);
+  }
+}
 async function saveAnomaly(socketId, detection, deviceType) {
   if (!detection.isAnomaly) return;
 
-  try {
-    await db.collection("anomalies").add({
-      socketId: Number(socketId),
-      deviceType,
-      severity: detection.severity,
-      reason: detection.reason,
-      zScore: Number(detection.zScore),
-      baseline: Number(detection.baseline),
-      normalRange: detection.normalRange,
-      timestamp: new Date(),
-    });
+  const anomalyDoc = {
+    socketId: Number(socketId),
+    deviceType,
+    severity: detection.severity,
+    reason: detection.reason,
+    zScore: Number(detection.zScore),
+    baseline: Number(detection.baseline),
+    normalRange: detection.normalRange,
+    timestamp: new Date(),
+  };
 
+  try {
+    await db.collection("anomalies").add(anomalyDoc);
     console.log(`🚨 [SOCKET ${socketId}] Anomaly detected: ${detection.reason}`);
   } catch (err) {
-    console.error("Error saving anomaly:", err);
+    console.warn("⚠️ Firebase anomaly save failed, caching anomaly locally:", err.message);
   }
+
+  pushAnomaly(socketId, anomalyDoc);
 }
 
 /**
@@ -132,8 +213,8 @@ async function getAnomalyHistory(socketId, daysBack = 7) {
 
     return anomalies;
   } catch (err) {
-    console.error("Error fetching anomalies:", err);
-    return [];
+    console.warn("Firestore anomaly fetch failed, using cached anomalies:", err.message);
+    return getAnomalyCache(socketId).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   }
 }
 
@@ -183,7 +264,26 @@ async function getAnomalyStats(socketId, daysBack = 30) {
 
 module.exports = {
   detectAnomaly,
+  detectAnomalyWithML,
   saveAnomaly,
   getAnomalyHistory,
   getAnomalyStats,
+  // Allow external reset of learning data (useful when user re-baselines)
+  resetLearningData: (socketId) => {
+    if (socketId === 'all' || socketId === undefined || socketId === null) {
+      Object.keys(learningData).forEach(k => {
+        learningData[k].readings = [];
+        learningData[k].baseline = null;
+      });
+      console.log('🔁 Anomaly learning data reset for all sockets');
+      return;
+    }
+
+    const id = Number(socketId);
+    if (learningData[id]) {
+      learningData[id].readings = [];
+      learningData[id].baseline = null;
+      console.log(`🔁 Anomaly learning data reset for socket ${id}`);
+    }
+  }
 };

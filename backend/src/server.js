@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
 // 🔥 IMPORTS
 const axios = require("axios");
@@ -16,90 +17,67 @@ app.use(cors({
 app.use(express.json());
 
 // 📡 ROUTES
+const PORT = process.env.PORT || 5000;
+
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/sensor", require("./routes/sensorRoutes"));
 app.use("/api/analytics", require("./routes/analyticsRoutes"));
 
 /* =========================================================
-   🔌 ESP32 SERIAL CONNECTION (FIXED & SAFE)
+   🔌 ESP32 SERIAL CONNECTION (OPTIONAL & NON-BLOCKING)
 ========================================================= */
 
-// ⚠️ Change COM port if needed
-const port = new SerialPort({
-  path: "COM17",
-  baudRate: 115200,
-  autoOpen: false
-});
-
-// ✅ Open port safely
-port.open((err) => {
-  if (err) {
-    console.error("❌ Failed to open port:", err.message);
-    return;
-  }
-  console.log("✅ Serial Port Opened");
-});
-
-const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
-
-// 🛑 Prevent too many DB writes
-let lastSent = 0;
-
-/* =========================================================
-   📥 READ ESP32 SERIAL DATA
-========================================================= */
-
-parser.on("data", async (line) => {
+// Initialize serial connection asynchronously (non-blocking)
+(async () => {
   try {
-    console.log("RAW:", line); // 🔥 DEBUG
+    const port = new SerialPort({
+      path: "COM17",
+      baudRate: 115200,
+      autoOpen: false
+    });
 
-    const now = Date.now();
-    if (now - lastSent < 3000) return; // ⏱ throttle
-    lastSent = now;
+    port.open((err) => {
+      if (err) {
+        console.warn("⚠️  Serial port COM17 not available:", err.message);
+        console.log("   → Server will run without ESP32 streaming");
+        return;
+      }
+      console.log("✅ Serial Port Opened");
 
-    const parts = line.trim().split(",");
+      const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
+      let lastSent = 0;
 
-    // ❌ Ignore invalid lines (non-CSV)
-    if (parts.length !== 4) {
-      console.log("⚠ Skipped (invalid format):", line);
-      return;
-    }
+      parser.on("data", async (line) => {
+        try {
+          const now = Date.now();
+          if (now - lastSent < 3000) return;
+          lastSent = now;
 
-    const [voltage, current, power, energy] = parts.map(Number);
+          const parts = line.trim().split(",");
+          if (parts.length !== 4) return;
 
-    // ❌ Ignore NaN values
-    if ([voltage, current, power, energy].some(isNaN)) {
-      console.log("⚠ Skipped (NaN detected):", parts);
-      return;
-    }
+          const [voltage, current, power, energy] = parts.map(Number);
+          if ([voltage, current, power, energy].some(isNaN)) return;
 
-    const payload = {
-      socketId: 1, // 🔥 IMPORTANT
-      voltage,
-      current,
-      power,
-      energy
-    };
-
-    console.log("📡 CLEAN DATA:", payload);
-
-    // ✅ Send to backend controller
-    await axios.post("http://localhost:5000/api/sensor", payload);
-
+          const payload = { socketId: 1, voltage, current, power, energy };
+          await axios.post(`http://localhost:${PORT}/api/sensor`, payload);
+        } catch (err) {
+          console.error("❌ Serial error:", err.message);
+        }
+      });
+    });
   } catch (err) {
-    console.error("❌ Serial Processing Error:", err.message);
+    console.warn("⚠️  Serial port initialization skipped:", err.message);
   }
-});
-
-// 🔥 Prevent crash if port fails
-port.on("error", (err) => {
-  console.error("❌ Serial Port Error:", err.message);
-});
+})();
 
 /* =========================================================
    🚀 START SERVER
 ========================================================= */
 
-app.listen(5000, () => {
-  console.log("🚀 Server running on http://localhost:5000");
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
+
+  // Start Telegram bot after the backend is live
+  require("./telegramBot");
 });

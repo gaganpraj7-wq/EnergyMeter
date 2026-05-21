@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { T, SOCKET_PALETTE, GLOBAL_CSS } from "../theme";
 import Sidebar from "../components/Sidebar";
+import SimultaneousLoadWarning from "../components/SimultaneousLoadWarning";
 import { getAllSockets, simAllSockets, toggleSocket, simToggle } from "../services/api";
 
 function useGlobalStyles() {
@@ -63,7 +64,7 @@ function PowerGauge({ power, maxPower = 3000, color, active }) {
 
 // ── Socket Card ───────────────────────────────────────────────────────────────
 function SocketCard({ socket, onToggle, onClick, delay = 0 }) {
-  const { socketId, voltage, current, power, energy, status } = socket;
+  const { socketId, voltage, current, power, energy, status, deviceName = "Unknown" } = socket;
   const pal = SOCKET_PALETTE[socketId - 1];
   const isOverload = status && current > 10;
   const cardColor  = isOverload ? T.warn : !status ? T.border : pal.main;
@@ -109,7 +110,12 @@ function SocketCard({ socket, onToggle, onClick, delay = 0 }) {
               <div style={{ fontFamily:"'Orbitron',monospace", fontSize:15, fontWeight:900, letterSpacing:2, color:status?pal.main:T.muted, textShadow:status?`0 0 12px ${pal.main}`:"none" }}>
                 {pal.name}
               </div>
-              <div style={{ fontSize:9, letterSpacing:2, color:T.muted }}>NODE {socketId} • {status?"ACTIVE":"OFFLINE"}</div>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4 }}>
+                <div style={{ fontSize:9, letterSpacing:2, color:T.muted }}>NODE {socketId} • {status?"ACTIVE":"OFFLINE"}</div>
+                <span style={{ padding:"3px 8px", borderRadius:999, background: status?"rgba(57,255,20,.12)":"rgba(255,255,255,.06)", color: status?T.accent3:T.text, fontSize:9, letterSpacing:1, textTransform:"uppercase" }}>
+                  {deviceName}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -238,8 +244,36 @@ export default function MultiSocketDashboard() {
   useEffect(() => {
     update();
     const id = setInterval(update, 3000);
+    const onClear = () => {
+      // clear only UI state
+      setSockets([]);
+      setTrendData([]);
+      setDataCount(0);
+      setLastUpdate("—");
+      setApiLive(false);
+    };
+    window.addEventListener('app:clear-ui', onClear);
     return () => clearInterval(id);
+    // cleanup
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('app:clear-ui', onClear);
+    };
   }, [update]);
+
+  // Listen for non-destructive UI clear events
+  useEffect(() => {
+    const handler = () => {
+      setSockets([]);
+      setTrendData([]);
+      setDataCount(0);
+      setLastUpdate("—");
+      setApiLive(false);
+      setAnyOverload(false);
+    };
+    window.addEventListener('app:clear-ui', handler);
+    return () => window.removeEventListener('app:clear-ui', handler);
+  }, []);
 
   useEffect(() => {
     const id = setInterval(() => setCountdown(c => c <= 1 ? 3 : c - 1), 1000);
@@ -294,6 +328,9 @@ export default function MultiSocketDashboard() {
               </div>
             </div>
           )}
+
+          {/* 🤖 AI SIMULTANEOUS LOAD DETECTION ── */}
+          <SimultaneousLoadWarning socketIds={activeSockets.map(s => s.socketId)} />
 
           {/* ── SUMMARY ROW ── */}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:24 }}>

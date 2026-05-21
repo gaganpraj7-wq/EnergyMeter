@@ -2,6 +2,7 @@
 // Monitors voltage stability, frequency, and power factor
 
 const db = require("../config/firebase");
+const { getSensorCache } = require("./cacheService");
 
 // Normal ranges
 const NORMAL_RANGES = {
@@ -143,10 +144,10 @@ function generateWarnings(voltage, powerFactor) {
  * Get power quality analysis for socket
  */
 async function getPowerQualityAnalysis(socketId, daysBack = 7) {
-  try {
-    const since = new Date();
-    since.setDate(since.getDate() - daysBack);
+  const since = new Date();
+  since.setDate(since.getDate() - daysBack);
 
+  try {
     const snapshot = await db
       .collection("sensorData")
       .where("socketId", "==", Number(socketId))
@@ -163,15 +164,10 @@ async function getPowerQualityAnalysis(socketId, daysBack = 7) {
     const analysis = analyzePowerQuality(readings);
     return analysis;
   } catch (err) {
-    console.error("Error analyzing power quality:", err);
-    return {
-      voltageStatus: "ERROR",
-      powerFactor: 0,
-      powerFactorStatus: "ERROR",
-      frequencyStatus: "ERROR",
-      overallQuality: "ERROR",
-      qualityScore: 0
-    };
+    console.warn("Firestore power quality fetch failed, using cached sensor data:", err.message);
+    const cachedReadings = getSensorCache(socketId).filter(reading => new Date(reading.timestamp) >= since);
+    const analysis = analyzePowerQuality(cachedReadings);
+    return analysis;
   }
 }
 

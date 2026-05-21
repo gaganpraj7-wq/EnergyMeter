@@ -122,6 +122,17 @@ export const getSocketHistory = async (socketId, range) => {
   }
 };
 
+// ✅ Reset in-memory anomaly baseline for a socket (non-destructive)
+export const resetAnomalyBaseline = async (socketId) => {
+  try {
+    const res = await API.post(`/api/sensor/anomaly/reset/${socketId}`, {}, { headers: authHeader() });
+    return res.data;
+  } catch (err) {
+    console.error("Error resetting anomaly baseline:", err);
+    return null;
+  }
+};
+
 // ✅ Analytics
 export async function getAnalytics() {
   try {

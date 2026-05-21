@@ -113,3 +113,63 @@ exports.getSummary = async (req, res) => {
     });
   }
 };
+
+/**
+ * 🤖 Get AI-Based Energy Optimization Suggestions
+ * Analyzes power usage, appliance behavior, peak loads
+ */
+exports.getOptimizationSuggestions = async (req, res) => {
+  try {
+    const { socketId } = req.params;
+    const optimizationService = require("../services/optimizationService");
+
+    const suggestions = await optimizationService.getOptimizationSuggestions(socketId);
+    
+    res.json(suggestions);
+  } catch (error) {
+    console.error("Optimization Service Error:", error);
+    res.status(500).json({
+      status: "ERROR",
+      message: "Error generating optimization suggestions",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * 🔋 Check Real-time Simultaneous Load Warning
+ * Alerts when multiple high-power devices are running together
+ */
+exports.checkSimultaneousLoad = async (req, res) => {
+  try {
+    const { socketIds } = req.body; // Array of socket IDs
+    const optimizationService = require("../services/optimizationService");
+
+    const warning = await optimizationService.checkSimultaneousLoadWarning(socketIds);
+    
+    res.json(warning);
+  } catch (error) {
+    console.error("Simultaneous Load Check Error:", error);
+    res.status(500).json({
+      error: error.message
+    });
+  }
+};
+
+/**
+ * 📋 Get Multi-Socket Optimization Plan
+ * Provides cross-device optimization recommendations
+ */
+exports.getMultiSocketOptimization = async (req, res) => {
+  try {
+    const optimizationService = require("../services/optimizationService");
+    const optimization = await optimizationService.getMultiSocketOptimization(req.user?.id);
+    
+    res.json(optimization);
+  } catch (error) {
+    console.error("Multi-Socket Optimization Error:", error);
+    res.status(500).json({
+      error: error.message
+    });
+  }
+};

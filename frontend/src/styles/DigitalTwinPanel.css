@@ -1,0 +1,141 @@
+.digital-twin-panel {
+  background: linear-gradient(135deg, rgba(0, 126, 255, 0.16), rgba(16, 25, 57, 0.96));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 22px;
+  margin-top: 20px;
+  color: white;
+}
+
+.digital-twin-panel.loading,
+.digital-twin-panel.empty {
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 14px;
+  color: #cbd5e1;
+}
+
+.dt-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.dt-header h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.dt-header p {
+  margin: 6px 0 0;
+  opacity: 0.9;
+  max-width: 520px;
+}
+
+.dt-header strong {
+  color: #7c3aed;
+  font-size: 14px;
+  min-width: 150px;
+  text-align: right;
+}
+
+.dt-scenarios {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.dt-scenarios button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: white;
+  padding: 10px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 12px;
+}
+
+.dt-scenarios button.selected,
+.dt-scenarios button:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.dt-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.dt-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 16px;
+  min-height: 120px;
+}
+
+.dt-card span {
+  display: block;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.65);
+  margin-bottom: 8px;
+}
+
+.dt-card strong {
+  display: block;
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.dt-card p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dt-chart-block {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 18px;
+}
+
+.dt-chart-header {
+  color: #a5b4fc;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+@media (max-width: 1040px) {
+  .dt-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .dt-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dt-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .dt-header strong {
+    text-align: left;
+    min-width: auto;
+  }
+}

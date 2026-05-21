@@ -3,9 +3,12 @@ const { trackSession, getSessionHistory, getDeviceSummary } = require("../servic
 const { detectAnomaly, saveAnomaly, getAnomalyHistory, getAnomalyStats } = require("../services/anomalyDetectionService");
 const { analyzeWaste, getWasteAnalysis, saveWasteAlert } = require("../services/energyWasteService");
 const { getCostForecast } = require("../services/forecastingService");
+const { getDigitalTwin } = require("../services/digitalTwinService");
 const { getPowerQualityAnalysis, savePowerQualityAlert } = require("../services/powerQualityService");
 const { calculateEfficiencyScore, getMonthlyComparison } = require("../services/efficiencyScoreService");
-
+const { pushSensorData, getSensorCache } = require("../services/cacheService");
+const { clearAllCaches } = require("../services/cacheService");
+const { trainDevice, classifyDevice, getKnownDevices, clearModels } = require("../services/deviceFingerprintService");
 const THRESHOLD = 5;
 
 // 🔥 GLOBAL REAL-TIME STORAGE
@@ -30,16 +33,21 @@ exports.addSensorData = async (req, res) => {
       console.log("⚠ Overload:", current);
     }
 
+    const fingerprint = classifyDevice({ voltage, current, power, energy });
+    const deviceName = fingerprint.deviceName !== "Unknown" ? fingerprint.deviceName : "Unknown";
+
     // 🔥 STORE REAL-TIME DATA
-latestData[socketId] = {
-  socketId: Number(socketId),
-  label: `SOCKET ${socketId}`,
-  voltage: Number(voltage),
-  current: Number(current),
-  power: Number(power),
-  energy: Number(energy),
-  status: true,
-};
+    latestData[socketId] = {
+      socketId: Number(socketId),
+      label: `SOCKET ${socketId}`,
+      voltage: Number(voltage),
+      current: Number(current),
+      power: Number(power),
+      energy: Number(energy),
+      deviceName,
+      fingerprint,
+      status: true,
+    };
 
 console.log("⚡ Live Stored:", latestData[socketId]);
 
@@ -53,13 +61,27 @@ console.log("🔥 FIREBASE SAVE:", {
 });
 
 // ✅ Save to Firebase
-await db.collection("sensorData").add({
-  userId,
-  socketId: Number(socketId),     // ✅ FIX
-  voltage: Number(voltage),       // ✅ FIX
-  current: Number(current),       // ✅ FIX
-  power: Number(power),           // ✅ FIX
-  energy: Number(energy),         // ✅ FIX
+try {
+  await db.collection("sensorData").add({
+    userId,
+    socketId: Number(socketId),
+    voltage: Number(voltage),
+    current: Number(current),
+    power: Number(power),
+    energy: Number(energy),
+    status,
+    timestamp: new Date(),
+  });
+} catch (err) {
+  console.warn("Firestore write failed for sensorData, caching locally:", err.message);
+}
+
+pushSensorData(socketId, {
+  socketId: Number(socketId),
+  voltage: Number(voltage),
+  current: Number(current),
+  power: Number(power),
+  energy: Number(energy),
   status,
   timestamp: new Date(),
 });
@@ -87,8 +109,8 @@ exports.getAllSockets = (req, res) => {
   const sockets = [];
 
   for (let i = 1; i <= 4; i++) {
-    if (i === 1 && latestData[1]) {
-      sockets.push(latestData[1]); // ✅ REAL
+    if (latestData[i]) {
+      sockets.push(latestData[i]); // ✅ REAL DATA FOR ALL SOCKETS
     } else {
       sockets.push({
         socketId: i,
@@ -97,6 +119,7 @@ exports.getAllSockets = (req, res) => {
         current: 0,
         power: 0,
         energy: 0,
+        deviceName: "Unknown",
         status: false,
       });
     }
@@ -120,6 +143,7 @@ exports.getLiveData = (req, res) => {
     current: 0,
     power: 0,
     energy: 0,
+    deviceName: "Unknown",
     status: false,
   });
 };
@@ -140,21 +164,32 @@ exports.getHistory = async (req, res) => {
 
     const startTime = new Date(Date.now() - hours * 60 * 60 * 1000);
 
-    const snapshot = await db
-      .collection("sensorData")
-      .where("userId", "==", userId)
-      .where("socketId", "==", socketId) // 🔥 MUST MATCH TYPE
-      .where("timestamp", ">=", startTime)
-      .orderBy("timestamp", "asc")
-      .get();
+    const limitSize = range === "30d" ? 800 : range === "7d" ? 400 : 200;
 
-    const data = snapshot.docs.map(doc => {
-      const d = doc.data();
-      return {
-        ...d,
-        timestamp: d.timestamp?.toDate?.() || d.timestamp
-      };
-    });
+    let data = [];
+    try {
+      const snapshot = await db
+        .collection("sensorData")
+        .where("socketId", "==", socketId)
+        .orderBy("timestamp", "desc")
+        .limit(limitSize)
+        .get();
+
+      data = snapshot.docs.map(doc => {
+        const d = doc.data();
+        return {
+          ...d,
+          timestamp: d.timestamp?.toDate?.() || d.timestamp
+        };
+      });
+    } catch (err) {
+      console.warn("Firestore history query failed, using cached sensor data:", err.message);
+      data = getSensorCache(socketId);
+    }
+
+    // Filter by requested time range and sort ascending
+    data = data.filter(d => new Date(d.timestamp) >= startTime)
+               .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
     console.log("📊 History fetched:", data.length);
 
@@ -162,7 +197,29 @@ exports.getHistory = async (req, res) => {
 
   } catch (err) {
     console.error("History Error:", err);
-    res.status(500).send("Error fetching history");
+
+    const socketId = Number(req.params.socketId);
+
+    // Firestore may be temporarily unavailable or quota-exhausted.
+    const fallback = recentDataCache[socketId] || [];
+    if (fallback.length > 0) {
+      console.warn(`Using in-memory cache for socket ${socketId} history fallback`);
+      const data = fallback.slice(-300).map(entry => ({
+        ...entry,
+        timestamp: entry.timestamp instanceof Date ? entry.timestamp : new Date(entry.timestamp),
+      }));
+      return res.json(data);
+    }
+
+    if (latestData[socketId]) {
+      console.warn(`Using live socket ${socketId} as history fallback`);
+      return res.json([{
+        ...latestData[socketId],
+        timestamp: new Date(),
+      }]);
+    }
+
+    res.status(500).json({ message: "Error fetching history", error: err.message });
   }
 };
 
@@ -199,6 +256,46 @@ exports.getDeviceSummary = async (req, res) => {
   } catch (err) {
     console.error("Device Summary Error:", err);
     res.status(500).send("Error fetching summary");
+  }
+};
+
+exports.trainDeviceFingerprint = async (req, res) => {
+  try {
+    const { deviceName, samples } = req.body;
+    const result = trainDevice(deviceName, samples);
+    res.json(result);
+  } catch (err) {
+    console.error("Fingerprint training error:", err.message);
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.classifyDeviceFingerprint = async (req, res) => {
+  try {
+    const { voltage, current, power, energy } = req.body;
+    const classification = classifyDevice({ voltage, current, power, energy });
+    res.json(classification);
+  } catch (err) {
+    console.error("Fingerprint classification error:", err.message);
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.getDeviceFingerprints = async (req, res) => {
+  try {
+    res.json(getKnownDevices());
+  } catch (err) {
+    console.error("Fingerprint list error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.clearDeviceFingerprints = async (req, res) => {
+  try {
+    res.json(clearModels());
+  } catch (err) {
+    console.error("Fingerprint clear error:", err.message);
+    res.status(500).json({ error: err.message });
   }
 };
 
@@ -248,6 +345,39 @@ exports.getCostForecastEndpoint = async (req, res) => {
   } catch (err) {
     console.error("Cost Forecast Error:", err);
     res.status(500).send("Error forecasting cost");
+  }
+};
+
+// 🌐 GET DIGITAL TWIN SIMULATION
+exports.getDigitalTwinEndpoint = async (req, res) => {
+  try {
+    const socketId = Number(req.params.socketId);
+    const tariff = Number(req.query.tariff) || 6.50;
+    const userId = req.user?.id || "defaultUser";
+
+    const simulation = await getDigitalTwin(socketId, userId, tariff);
+    res.json(simulation);
+  } catch (err) {
+    console.error("Digital Twin Error:", err);
+    res.status(500).send("Error generating digital twin simulation");
+  }
+};
+
+// 🧹 CLEAR ALL ANOMALIES (FOR TESTING)
+exports.clearAnomalies = async (req, res) => {
+  try {
+    const snapshot = await db.collection("anomalies").get();
+    const batch = db.batch();
+
+    snapshot.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+
+    await batch.commit();
+    res.json({ success: true, message: `Cleared ${snapshot.size} anomalies` });
+  } catch (err) {
+    console.error("Clear Anomalies Error:", err);
+    res.status(500).send("Error clearing anomalies");
   }
 };
 
@@ -309,5 +439,52 @@ exports.getEfficiencyScoreEndpoint = async (req, res) => {
   } catch (err) {
     console.error("Efficiency Score Error:", err);
     res.status(500).send("Error calculating efficiency score");
+  }
+};
+
+// 🔁 RESET IN-MEMORY ANOMALY BASELINE FOR A SOCKET (NON-DESTRUCTIVE)
+exports.resetBaseline = async (req, res) => {
+  try {
+    const socketId = req.params.socketId;
+    const anomalyService = require("../services/anomalyDetectionService");
+    anomalyService.resetLearningData(socketId);
+    res.json({ success: true, message: `Reset baseline for socket ${socketId}` });
+  } catch (err) {
+    console.error("Reset Baseline Error:", err);
+    res.status(500).send("Error resetting baseline");
+  }
+};
+
+// 🔁 RESET EVERYTHING TO INITIAL STATE (CAUTION: deletes stored collections)
+exports.resetAll = async (req, res) => {
+  try {
+    const collectionsToClear = ["anomalies", "wasteAlerts", "powerQualityAlerts", "sessions", "sensorData"];
+    let totalDeleted = 0;
+
+    for (const col of collectionsToClear) {
+      const snapshot = await db.collection(col).get();
+      if (snapshot.empty) continue;
+      const batch = db.batch();
+      snapshot.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+      totalDeleted += snapshot.size;
+    }
+
+    // Reset in-memory learning baselines
+    const anomalyService = require("../services/anomalyDetectionService");
+    anomalyService.resetLearningData('all');
+
+    // Clear in-memory caches
+    clearAllCaches();
+
+    // Reset latestData to empty
+    for (let i = 1; i <= 4; i++) {
+      latestData[i] = null;
+    }
+
+    res.json({ success: true, message: `Reset complete, cleared ${totalDeleted} documents` });
+  } catch (err) {
+    console.error("Reset All Error:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };

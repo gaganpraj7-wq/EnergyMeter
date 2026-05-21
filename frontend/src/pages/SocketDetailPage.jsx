@@ -12,8 +12,10 @@ import SessionTimeline from "../components/SessionTimeline";
 import AnomalyDetectionPanel from "../components/AnomalyDetectionPanel";
 import EnergyWastePanel from "../components/EnergyWastePanel";
 import CostForecastPanel from "../components/CostForecastPanel";
+import DigitalTwinPanel from "../components/DigitalTwinPanel";
 import PowerQualityPanel from "../components/PowerQualityPanel";
 import EfficiencyScorePanel from "../components/EfficiencyScorePanel";
+import OptimizationPanel from "../components/OptimizationPanel";
 import { getAllSockets, getSocketHistory, toggleSocket, simToggle } from "../services/api";
 
 // ─── simSocketHistory intentionally NOT imported — no fake history data ───────
@@ -167,6 +169,7 @@ export default function SocketDetailPage() {
   const [threshold,  setThreshold]  = useState("10");
   const [tariff,     setTariff]     = useState("6.50");
   const [apiStatus,  setApiStatus]  = useState("CONNECTING");
+  const [refreshCounter, setRefreshCounter] = useState(0);
 
   // ── History state — [] until backend returns real stored rows ─────────────
   // simSocketHistory() is NEVER used anywhere in this file
@@ -241,7 +244,17 @@ export default function SocketDetailPage() {
     update();
     const pollId      = setInterval(update, 3000);
     const countdownId = setInterval(() => setCountdown(c => c <= 1 ? 3 : c - 1), 1000);
-    return () => { clearInterval(pollId); clearInterval(countdownId); };
+    // listen for UI-clear events
+    const onClear = () => {
+      setLive(null);
+      setLiveChart([]);
+      setHistData([]);
+      setHistHasData(false);
+      setApiStatus("CONNECTING");
+    };
+    window.addEventListener('app:clear-ui', onClear);
+
+    return () => { clearInterval(pollId); clearInterval(countdownId); window.removeEventListener('app:clear-ui', onClear); };
   }, [update]);
 
   // ── HISTORY FETCH — real API only, NO simSocketHistory() fallback ─────────
@@ -259,6 +272,10 @@ export default function SocketDetailPage() {
     if (data && Array.isArray(data) && data.length > 0) {
       setHistData(data);
       setHistHasData(true);
+    } else if (live && live.socketId === socketId) {
+      console.log("⚠️ NO HISTORY DATA, using live fallback");
+      setHistData([{ ...live, timestamp: new Date() }]);
+      setHistHasData(true);
     } else {
       console.log("⚠️ NO HISTORY DATA");
       setHistData([]);
@@ -267,12 +284,17 @@ export default function SocketDetailPage() {
 
   } catch (err) {
     console.error("❌ History fetch error:", err);
-    setHistData([]);
-    setHistHasData(false);
+    if (live && live.socketId === socketId) {
+      setHistData([{ ...live, timestamp: new Date() }]);
+      setHistHasData(true);
+    } else {
+      setHistData([]);
+      setHistHasData(false);
+    }
   }
 
   setHistLoading(false);
-}, [socketId, range]);
+}, [socketId, range, live]);
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
@@ -337,7 +359,13 @@ export default function SocketDetailPage() {
                 <div style={{ fontFamily:"'Orbitron',monospace", fontSize:20, fontWeight:900, letterSpacing:3, color:pal.main, textShadow:`0 0 20px ${pal.shadow}` }}>
                   {pal.name} — SOCKET {socketId}
                 </div>
-                <div style={{ fontSize:9, color:T.muted, letterSpacing:2, marginTop:4 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:6 }}>
+                  <span style={{ fontSize:10, letterSpacing:2, color:T.muted }}>DEVICE</span>
+                  <span style={{ padding:"4px 10px", borderRadius:999, background:"rgba(57,255,20,.12)", color:T.accent3, fontSize:10, letterSpacing:1, textTransform:"uppercase" }}>
+                    {live?.deviceName || "No device detected"}
+                  </span>
+                </div>
+                <div style={{ fontSize:9, color:T.muted, letterSpacing:2, marginTop:8 }}>
                   FULL DASHBOARD • LIVE + HISTORY • REFRESH IN{" "}
                   <span style={{ color:pal.main, fontFamily:"'Orbitron',monospace" }}>{countdown}s</span>
                 </div>
@@ -367,6 +395,30 @@ export default function SocketDetailPage() {
                 cursor:"pointer", transition:"all .2s",
               }}>
                 {status?"TURN OFF":"TURN ON"}
+              </button>
+              <button onClick={async () => {
+                // Clear UI state (do NOT clear DB)
+                setLive(null);
+                setLiveChart([]);
+                setHistData([]);
+                setHistHasData(false);
+                setApiStatus("CONNECTING");
+                // Ask backend to reset in-memory anomaly baseline for this socket
+                try {
+                  const { resetAnomalyBaseline } = await import("../services/api");
+                  await resetAnomalyBaseline(socketId);
+                } catch (err) {
+                  console.warn("Could not reset anomaly baseline:", err);
+                }
+                // immediately fetch latest
+                await update();
+                await fetchHistory();
+              }} style={{ padding:"8px 14px", border:`1px solid ${T.border}`, borderRadius:4, background:"transparent", color:T.muted, cursor:"pointer", fontSize:12 }}>
+                🔄 Refresh Live
+              </button>
+              <button onClick={() => window.dispatchEvent(new Event('app:clear-ui'))}
+                style={{ padding:"8px 14px", border:`1px solid ${T.border}`, borderRadius:4, background:"transparent", color:T.gold, cursor:"pointer", fontSize:12 }}>
+                🧹 Clear UI
               </button>
             </div>
           </header>
@@ -704,20 +756,26 @@ export default function SocketDetailPage() {
           {/* ── SESSION TIMELINE (NEW FEATURE) ── */}
           <SessionTimeline socketId={socketId} />
 
+          {/* 🤖 AI-BASED ENERGY OPTIMIZATION ENGINE (NEW FEATURE) ── */}
+          <OptimizationPanel socketId={socketId} refreshKey={refreshCounter} />
+
           {/* 🚨 TIER 1: ANOMALY DETECTION ── */}
-          <AnomalyDetectionPanel socketId={socketId} />
+          <AnomalyDetectionPanel socketId={socketId} refreshKey={refreshCounter} />
 
           {/* 💡 TIER 1: ENERGY WASTE DETECTION ── */}
-          <EnergyWastePanel socketId={socketId} tariff={parseFloat(tariff) || 6.50} />
+          <EnergyWastePanel socketId={socketId} tariff={parseFloat(tariff) || 6.50} refreshKey={refreshCounter} />
 
           {/* 💰 TIER 1: COST FORECASTING ── */}
-          <CostForecastPanel socketId={socketId} tariff={parseFloat(tariff) || 6.50} />
+          <CostForecastPanel socketId={socketId} tariff={parseFloat(tariff) || 6.50} refreshKey={refreshCounter} />
+
+          {/* 🌐 FEATURE 20: DIGITAL TWIN SIMULATION ── */}
+          <DigitalTwinPanel socketId={socketId} tariff={parseFloat(tariff) || 6.50} refreshKey={refreshCounter} />
 
           {/* ⚡ TIER 2: POWER QUALITY ── */}
-          <PowerQualityPanel socketId={socketId} />
+          <PowerQualityPanel socketId={socketId} refreshKey={refreshCounter} />
 
           {/* 🏆 TIER 2: EFFICIENCY SCORE ── */}
-          <EfficiencyScorePanel socketId={socketId} />
+          <EfficiencyScorePanel socketId={socketId} refreshKey={refreshCounter} />
 
           {/* Footer */}
           <footer style={{ marginTop:24, paddingTop:14, borderTop:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", fontSize:9, color:T.muted, letterSpacing:2 }}>

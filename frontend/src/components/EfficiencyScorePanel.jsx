@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
 const API = axios.create({ baseURL: "http://localhost:5000" });
@@ -15,15 +15,15 @@ const T = {
   orange: "#ff9500"
 };
 
-const EfficiencyScorePanel = ({ socketId }) => {
+const EfficiencyScorePanel = ({ socketId, refreshKey }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchEfficiency();
-  }, [socketId]);
+  const [uiCleared, setUiCleared] = useState(false);
+  const uiClearedRef = useRef(false);
+  const intervalRef = useRef(null);
 
   const fetchEfficiency = async () => {
+    if (uiClearedRef.current) return;
     try {
       const res = await API.get(`/api/sensor/efficiency/${socketId}`);
       setData(res.data);
@@ -34,7 +34,56 @@ const EfficiencyScorePanel = ({ socketId }) => {
     }
   };
 
+  const startPolling = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => fetchEfficiency(), 15000);
+  };
+
+  const clearEfficiencyUI = () => {
+    uiClearedRef.current = true;
+    setUiCleared(true);
+    setData(null);
+    setLoading(false);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  };
+
+  const refreshEfficiency = async () => {
+    uiClearedRef.current = false;
+    setUiCleared(false);
+    setLoading(true);
+    await fetchEfficiency();
+    startPolling();
+  };
+
+  useEffect(() => {
+    const handleClear = () => clearEfficiencyUI();
+    window.addEventListener('app:clear-ui', handleClear);
+    refreshEfficiency();
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      window.removeEventListener('app:clear-ui', handleClear);
+    };
+  }, [socketId, refreshKey]);
+
   if (loading) return <div style={styles.loading}>⏳ Loading...</div>;
+  if (uiCleared) return (
+    <div style={styles.container}>
+      <h3 style={styles.title}>🏆 Efficiency Score & Gamification</h3>
+      <div style={styles.panelCleared}>
+        <div style={styles.clearedLine}>Score: --</div>
+        <div style={styles.clearedLine}>Grade: --</div>
+        <div style={styles.clearedLine}>Peak Usage Control: --</div>
+        <div style={styles.clearedLine}>Voltage Stability: --</div>
+      </div>
+      <div style={styles.panelFooter}>
+        <button style={styles.footerBtn} onClick={refreshEfficiency}>🔄 Refresh</button>
+        <button style={styles.footerBtn} onClick={clearEfficiencyUI}>🧹 Clear UI</button>
+      </div>
+    </div>
+  );
   if (!data) return <div style={styles.loading}>No data</div>;
 
   const { efficiency, monthlyComparison } = data;
@@ -45,7 +94,7 @@ const EfficiencyScorePanel = ({ socketId }) => {
     if (grade.includes("A") || grade.includes("B")) return T.success;
     if (grade.includes("C")) return T.gold;
     if (grade.includes("D")) return T.orange;
-    return T.warn = "#ff3b3b";
+    return T.warn;
   };
 
   const CircularScore = () => {
@@ -239,6 +288,33 @@ const styles = {
     border: `1px solid ${T.success}`,
     borderRadius: "6px",
     padding: "14px"
+  },
+  panelCleared: {
+    background: "rgba(255, 255, 255, 0.05)",
+    border: `1px dashed ${T.border}`,
+    borderRadius: "8px",
+    padding: "18px",
+    marginBottom: "20px",
+    color: "rgba(255,255,255,0.85)"
+  },
+  clearedLine: {
+    fontSize: "13px",
+    marginBottom: "8px"
+  },
+  panelFooter: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap"
+  },
+  footerBtn: {
+    background: "rgba(255, 255, 255, 0.12)",
+    border: `1px solid rgba(255,255,255,0.2)`,
+    color: "white",
+    padding: "10px 16px",
+    borderRadius: "6px",
+    cursor: "pointer",
+    fontWeight: 600,
+    minWidth: "110px"
   },
   tipsTitle: { fontSize: "11px", fontWeight: "bold", color: T.success, marginBottom: "10px" },
   tipItem: { display: "flex", gap: "10px", marginBottom: "10px" },

@@ -1,0 +1,245 @@
+/* SimultaneousLoadWarning.css */
+
+.simultaneous-load-warning {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+  animation: slideInDown 0.4s ease-out;
+  color: white;
+  border-left: 4px solid rgba(255, 255, 255, 0.5);
+}
+
+.simultaneous-load-warning.warning {
+  background: linear-gradient(135deg, #ffa502 0%, #ff8c00 100%);
+  box-shadow: 0 4px 15px rgba(255, 165, 2, 0.3);
+}
+
+.simultaneous-load-warning.critical {
+  background: linear-gradient(135deg, #ff4757 0%, #ff3838 100%);
+  box-shadow: 0 4px 15px rgba(255, 71, 87, 0.4);
+  animation: pulse 2s infinite, slideInDown 0.4s ease-out;
+}
+
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 4px 15px rgba(255, 71, 87, 0.4);
+  }
+  50% {
+    box-shadow: 0 4px 25px rgba(255, 71, 87, 0.7);
+  }
+}
+
+/* Header */
+.warning-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  position: relative;
+}
+
+.warning-icon {
+  font-size: 24px;
+  animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+  0%, 50%, 100% {
+    opacity: 1;
+  }
+  25%, 75% {
+    opacity: 0.6;
+  }
+}
+
+.warning-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.dismiss-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.dismiss-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+/* Content */
+.warning-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.load-info,
+.devices-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 10px 12px;
+  border-radius: 6px;
+}
+
+.load-info strong,
+.devices-info strong {
+  opacity: 0.9;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.power-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffd93d;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  min-width: 100px;
+  text-align: right;
+}
+
+.devices-list {
+  margin: 0;
+  font-weight: 600;
+  font-size: 13px;
+  text-align: right;
+  color: #ffe5e5;
+}
+
+/* Recommendation Box */
+.recommendation-box {
+  background: rgba(255, 255, 255, 0.15);
+  padding: 12px;
+  border-radius: 6px;
+  border-left: 3px solid #ffd93d;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recommendation-box strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.recommendation-box p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  opacity: 0.95;
+}
+
+/* Footer */
+.warning-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.warning-footer small {
+  opacity: 0.8;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.refresh-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.05);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .simultaneous-load-warning {
+    padding: 12px;
+    margin-bottom: 16px;
+  }
+
+  .warning-header {
+    margin-bottom: 10px;
+  }
+
+  .warning-header h3 {
+    font-size: 14px;
+  }
+
+  .warning-icon {
+    font-size: 20px;
+  }
+
+  .load-info,
+  .devices-info {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .power-value {
+    text-align: left;
+    width: 100%;
+  }
+
+  .devices-list {
+    text-align: left;
+    width: 100%;
+  }
+
+  .warning-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .refresh-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

@@ -4,6 +4,7 @@ import {
   ResponsiveContainer, ReferenceLine
 } from "recharts";
 import axios from "axios";
+import SimultaneousLoadWarning from "../components/SimultaneousLoadWarning";
 
 // ─── AXIOS INSTANCE ──────────────────────────────────────────────────────────
 const API = axios.create({

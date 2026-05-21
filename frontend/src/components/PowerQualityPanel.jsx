@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
 const API = axios.create({ baseURL: "http://localhost:5000" });
@@ -15,17 +15,15 @@ const T = {
   orange: "#ff9500"
 };
 
-const PowerQualityPanel = ({ socketId }) => {
+const PowerQualityPanel = ({ socketId, refreshKey }) => {
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchPowerQuality();
-    const interval = setInterval(fetchPowerQuality, 15000);
-    return () => clearInterval(interval);
-  }, [socketId]);
+  const [uiCleared, setUiCleared] = useState(false);
+  const uiClearedRef = useRef(false);
+  const intervalRef = useRef(null);
 
   const fetchPowerQuality = async () => {
+    if (uiClearedRef.current) return;
     try {
       const res = await API.get(`/api/sensor/powerquality/${socketId}`);
       setAnalysis(res.data);
@@ -36,7 +34,56 @@ const PowerQualityPanel = ({ socketId }) => {
     }
   };
 
+  const startPolling = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => fetchPowerQuality(), 15000);
+  };
+
+  const clearPowerQualityUI = () => {
+    uiClearedRef.current = true;
+    setUiCleared(true);
+    setAnalysis(null);
+    setLoading(false);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  };
+
+  const refreshPowerQuality = async () => {
+    uiClearedRef.current = false;
+    setUiCleared(false);
+    setLoading(true);
+    await fetchPowerQuality();
+    startPolling();
+  };
+
+  useEffect(() => {
+    const handleClear = () => clearPowerQualityUI();
+    window.addEventListener('app:clear-ui', handleClear);
+    refreshPowerQuality();
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      window.removeEventListener('app:clear-ui', handleClear);
+    };
+  }, [socketId, refreshKey]);
+
   if (loading) return <div style={styles.loading}>⏳ Loading...</div>;
+  if (uiCleared) return (
+    <div style={styles.container}>
+      <h3 style={styles.title}>⚡ Power Quality Monitoring</h3>
+      <div style={styles.panelCleared}>
+        <div style={styles.clearedLine}>Overall Power Quality: --</div>
+        <div style={styles.clearedLine}>Voltage: --</div>
+        <div style={styles.clearedLine}>Power Factor: --</div>
+        <div style={styles.clearedLine}>Frequency: --</div>
+      </div>
+      <div style={styles.panelFooter}>
+        <button style={styles.footerBtn} onClick={refreshPowerQuality}>🔄 Refresh</button>
+        <button style={styles.footerBtn} onClick={clearPowerQualityUI}>🧹 Clear UI</button>
+      </div>
+    </div>
+  );
   if (!analysis) return <div style={styles.loading}>No data</div>;
 
   const getQualityColor = (score) => {
@@ -199,6 +246,33 @@ const styles = {
     border: `1px solid ${T.warn}`,
     borderRadius: "6px",
     padding: "14px"
+  },
+  panelCleared: {
+    background: "rgba(255, 255, 255, 0.05)",
+    border: `1px dashed ${T.border}`,
+    borderRadius: "8px",
+    padding: "18px",
+    marginBottom: "20px",
+    color: "rgba(255,255,255,0.85)"
+  },
+  clearedLine: {
+    fontSize: "13px",
+    marginBottom: "8px"
+  },
+  panelFooter: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap"
+  },
+  footerBtn: {
+    background: "rgba(255, 255, 255, 0.12)",
+    border: `1px solid rgba(255,255,255,0.2)`,
+    color: "white",
+    padding: "10px 16px",
+    borderRadius: "6px",
+    cursor: "pointer",
+    fontWeight: 600,
+    minWidth: "110px"
   },
   warningsTitle: { fontSize: "12px", fontWeight: "bold", color: T.warn, marginBottom: "10px" },
   warningItem: { marginBottom: "8px" }

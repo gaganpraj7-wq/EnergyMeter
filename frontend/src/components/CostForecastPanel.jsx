@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 const API = axios.create({ baseURL: "http://localhost:5000" });
 
@@ -36,40 +37,37 @@ const CostForecastPanel = ({ socketId, tariff = 6.50 }) => {
   if (loading) return <div style={styles.loading}>⏳ Loading...</div>;
   if (!forecast) return <div style={styles.loading}>No forecast data</div>;
 
+  const historyData = forecast.dailyHistory || [];
+  const forecastData = forecast.dailyForecast || [];
+
   return (
     <div style={styles.container}>
-      <h3 style={styles.title}>💰 Cost Prediction & Bill Forecast</h3>
+      <h3 style={styles.title}>🔮 Predictive Energy Consumption</h3>
 
       <div style={styles.forecastBox}>
-        <div style={styles.label}>Next Month's Predicted Bill</div>
-        <div style={styles.billAmount}>
-          ₹{forecast.predictedMonthlyBill}
-        </div>
-        <div style={styles.subtext}>
-          {forecast.predictedMonthlyEnergy} kWh × ₹{tariff}
-        </div>
+        <div style={styles.label}>Monthly Estimate</div>
+        <div style={styles.billAmount}>₹{forecast.predictedMonthlyBill}</div>
+        <div style={styles.subtext}>{forecast.predictedMonthlyEnergy} kWh estimated for next 30 days</div>
       </div>
 
       <div style={styles.gridContainer}>
         <div style={styles.card}>
-          <div style={styles.cardLabel}>Daily Average</div>
+          <div style={styles.cardLabel}>Daily Prediction</div>
           <div style={styles.cardValue}>{forecast.predictedDailyAvg} kWh</div>
-          <div style={styles.cardSmall}>vs Historical: {forecast.historicalAvg}</div>
+          <div style={styles.cardSmall}>Historical avg {forecast.historicalAvg} kWh</div>
         </div>
-
         <div style={styles.card}>
-          <div style={styles.cardLabel}>Trend</div>
-          <div style={{...styles.cardValue, color: forecast.trendPercent > 0 ? "#ff6b6b" : "#51cf66"}}>
-            {forecast.trend}
+          <div style={styles.cardLabel}>Weekly Trend</div>
+          <div style={{ ...styles.cardValue, color: forecast.weeklyTrend?.trendPercent > 0 ? "#ff6b6b" : "#51cf66" }}>
+            {forecast.weeklyTrend?.direction || forecast.trend}
           </div>
-          <div style={styles.cardSmall}>{forecast.trendPercent > 0 ? "+" : ""}{forecast.trendPercent}% change</div>
+          <div style={styles.cardSmall}>{forecast.weeklyTrend?.trendPercent ?? forecast.trendPercent}% vs prev week</div>
         </div>
-
         <div style={styles.card}>
-          <div style={styles.cardLabel}>Confidence</div>
-          <div style={{...styles.cardValue, color: 
-            forecast.confidence === "HIGH" ? "#51cf66" : 
-            forecast.confidence === "MEDIUM" ? "#ffd700" : 
+          <div style={styles.cardLabel}>Prediction Confidence</div>
+          <div style={{ ...styles.cardValue, color:
+            forecast.confidence === "HIGH" ? "#51cf66" :
+            forecast.confidence === "MEDIUM" ? "#ffd700" :
             "#ff6b6b"
           }}>
             {forecast.confidence}
@@ -78,20 +76,48 @@ const CostForecastPanel = ({ socketId, tariff = 6.50 }) => {
         </div>
       </div>
 
+      <div style={styles.chartSection}>
+        <div style={styles.chartPanel}>
+          <div style={styles.chartHeader}>Daily Usage History</div>
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={historyData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
+              <XAxis dataKey="date" tick={{ fill: T.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: T.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ background: T.panel, border: `1px solid ${T.border}`, color: T.text }} />
+              <Line type="monotone" dataKey="energy" stroke={T.accent} strokeWidth={3} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div style={styles.chartPanel}>
+          <div style={styles.chartHeader}>Next 7 Days Forecast</div>
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={forecastData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
+              <XAxis dataKey="date" tick={{ fill: T.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: T.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ background: T.panel, border: `1px solid ${T.border}`, color: T.text }} />
+              <Line type="monotone" dataKey="predictedEnergy" stroke={T.gold} strokeWidth={3} dot={{ r: 3, fill: T.gold }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
       <div style={styles.insights}>
-        <div style={styles.insightTitle}>📊 Insights:</div>
+        <div style={styles.insightTitle}>📈 Forecast Summary</div>
         <ul style={styles.insightList}>
-          <li>Based on {forecast.daysAnalyzed} days of historical data</li>
-          <li>Monthly trend is {forecast.trendPercent > 2 ? "📈 INCREASING" : forecast.trendPercent < -2 ? "📉 DECREASING" : "➡️ STABLE"}</li>
-          <li>Forecasting confidence is {forecast.confidence.toLowerCase()}</li>
-          {forecast.trendPercent > 5 && <li style={{color: "#ff6b6b"}}>⚠️ Usage increasing - consider efficiency improvements</li>}
-          {forecast.trendPercent < -5 && <li style={{color: "#51cf66"}}>✅ Usage decreasing - good job!</li>}
+          <li>Estimated monthly usage: <strong>{forecast.predictedMonthlyEnergy} kWh</strong></li>
+          <li>Predicted daily average: <strong>{forecast.predictedDailyAvg} kWh</strong></li>
+          <li>Last week energy: <strong>{forecast.weeklyTrend?.lastWeekEnergy} kWh</strong></li>
+          <li>Trend direction: <strong>{forecast.weeklyTrend?.direction}</strong></li>
+          <li>Forecast confidence is <strong>{forecast.confidence}</strong></li>
         </ul>
       </div>
 
       <div style={styles.warning}>
         <div style={styles.warningText}>
-          💡 This prediction helps you budget for electricity costs. Actual bills may vary based on tariff changes and usage patterns.
+          💡 Predictions are based on historical usage and may vary with future behavior. Use this to plan your budget and spot rising consumption.
         </div>
       </div>
     </div>
@@ -135,6 +161,9 @@ const styles = {
   cardLabel: { fontSize: "10px", color: T.muted, marginBottom: "6px" },
   cardValue: { fontSize: "18px", fontWeight: "bold", color: T.accent, marginBottom: "4px" },
   cardSmall: { fontSize: "9px", color: T.muted },
+  chartSection: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "20px" },
+  chartPanel: { background: T.bg, border: `1px solid ${T.border}`, borderRadius: "8px", padding: "14px" },
+  chartHeader: { marginBottom: "12px", color: T.text, fontSize: "13px", fontWeight: 700 },
   insights: { background: T.bg, border: `1px solid ${T.border}`, borderRadius: "6px", padding: "14px", marginBottom: "12px" },
   insightTitle: { fontSize: "11px", fontWeight: "bold", color: T.accent, marginBottom: "8px" },
   insightList: { margin: 0, paddingLeft: "20px", fontSize: "10px", color: T.text, lineHeight: "1.6" },

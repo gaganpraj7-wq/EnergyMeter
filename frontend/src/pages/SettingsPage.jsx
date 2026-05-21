@@ -249,6 +249,23 @@ export default function SettingsPage() {
     addToast("PROFILE RESET TO DEFAULTS", "error");
   };
 
+  // Reset entire system to initial state (calls backend)
+  const resetSystem = async () => {
+    if (!window.confirm("Reset system to initial state? This will delete anomalies, alerts, sessions and sensor history.")) return;
+    addToast("RESETTING SYSTEM — PLEASE WAIT...", "success");
+    try {
+      const res = await fetch('/api/sensor/reset-all', { method: 'POST' });
+      const j = await res.json();
+      if (res.ok) {
+        addToast(`SYSTEM RESET: ${j.message}`, 'success');
+      } else {
+        addToast(`RESET FAILED: ${j.message || 'Server error'}`, 'error');
+      }
+    } catch (err) {
+      addToast(`RESET ERROR: ${err.message}`, 'error');
+    }
+  };
+
   const P = "22px 24px";
 
   return (
@@ -389,7 +406,18 @@ export default function SettingsPage() {
               <span className="pg-blink" style={{ width:5, height:5, borderRadius:"50%", background:T.accent3, display:"inline-block", boxShadow:`0 0 5px ${T.accent3}` }}/>
               POWERGRID v2.0 — SETTINGS
             </div>
-            <div>SESSION: {profile.username.toUpperCase()}</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <button className="pg-btn-ghost" onClick={resetProfile}>RESET PROFILE</button>
+              <button className="pg-btn-ghost" onClick={() => {
+                // Non-destructive UI refresh: clear frontend-only values
+                if (window.confirm("Clear all displayed values on the UI (non-destructive)?")) {
+                  window.dispatchEvent(new Event('app:clear-ui'));
+                  addToast('UI refreshed (display cleared)', 'success');
+                }
+              }}>REFRESH UI</button>
+              <button className="pg-btn-ghost" onClick={resetSystem} style={{ color:'#ff6b6b', borderColor:'rgba(255,107,107,.12)' }}>RESET SYSTEM</button>
+              <div>SESSION: {profile.username.toUpperCase()}</div>
+            </div>
           </footer>
 
         </div>
